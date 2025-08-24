@@ -86,8 +86,15 @@ def get_share_urls(post_id):
     return whatsapp, gmail
 
 # --- Read URL query parameter ---
-query_params = st.experimental_get_query_params()
-highlight_post_id = st.query_params.get("post_id", [None])[0]  # None if not present
+#query_params = st.experimental_get_query_params()
+#highlight_post_id = st.query_params.get("post_id", [None])[0]  # None if not present
+# --- Read URL query parameter safely ---
+highlight_post_id = None
+if "post_id" in st.query_params:
+    values = st.query_params["post_id"]
+    if values:  # ensure list is not empty
+        highlight_post_id = values[0]
+
 
 # --- Streamlit App ---
 st.title("LAUSHARS-V THE AI-Powered INDIAN Social App")
