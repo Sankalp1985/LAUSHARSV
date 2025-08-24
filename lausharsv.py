@@ -65,7 +65,6 @@ def generate_predefined_questions(content):
     try:
         prompt = f"Create 3 simple questions based on this text:\n{content}"
         response = client.models.generate_content(model="gemini-2.5-flash", contents=prompt)
-        # Split lines, take first 3 non-empty
         questions = [q.strip() for q in response.text.strip().split("\n") if q.strip()][:3]
         if len(questions) < 3:
             questions += ["Explain the main idea.", "Give a summary.", "What is this post about?"][:3-len(questions)]
@@ -103,7 +102,12 @@ if st.button("Post"):
 
     if post_content:
         if moderate_post(post_content):
-            posts.insert(0, {"content": post_content, "media": media_info, "ai_reply": "", "predefined_questions": generate_predefined_questions(post_content)})
+            posts.insert(0, {
+                "content": post_content,
+                "media": media_info,
+                "comments": [],  # Store all AI/user answers here
+                "predefined_questions": generate_predefined_questions(post_content)
+            })
             save_posts()
             st.success("Post created successfully!")
         else:
@@ -115,7 +119,6 @@ if st.button("Post"):
 st.subheader("Feed")
 for i, post in enumerate(posts):
     st.write(f"**Post {i+1}:** {post['content']}")
-    # Display media if image
     if post.get("media"):
         if "image" in post["media"]["type"]:
             img = Image.open(post["media"]["name"])
@@ -130,14 +133,19 @@ for i, post in enumerate(posts):
     for idx, q in enumerate(post.get("predefined_questions", [])):
         if st.button(f"{q}", key=f"pre{i}{idx}"):
             answer = ask_ai(q)
-            st.write(f"**AI Answer:** {answer}")
-            post["ai_reply"] = answer
+            post["comments"].append({"question": q, "answer": answer})
             save_posts()
 
     # Free form question
     user_q = st.text_input(f"Ask any question about this post {i+1}:", key=f"userq{i}")
     if st.button(f"Ask AI {i+1}", key=f"userb{i}"):
         answer = ask_ai(user_q)
-        st.write(f"**AI Answer:** {answer}")
-        post["ai_reply"] = answer
+        post["comments"].append({"question": user_q, "answer": answer})
         save_posts()
+
+    # Display all comments for this post
+    if post.get("comments"):
+        st.write("**Comments / AI Replies:**")
+        for c in post["comments"]:
+            st.write(f"**Q:** {c['question']}")
+            st.write(f"**A:** {c['answer']}")
