@@ -3,6 +3,7 @@ import json
 import os
 import re
 import io
+import tempfile
 from google import genai
 from PIL import Image
 import PyPDF2
@@ -67,6 +68,14 @@ def get_share_urls(post_content):
     gmail = f"https://mail.google.com/mail/?view=cm&body={encoded_text}&su=Check%20this%20post"
     return whatsapp, gmail
 
+# --- DOCX reader helper ---
+def read_docx_bytes(file_bytes):
+    with tempfile.NamedTemporaryFile(suffix=".docx", delete=True) as tmp:
+        tmp.write(file_bytes)
+        tmp.flush()
+        text = docx2txt.process(tmp.name)
+    return text
+
 st.title("LAUSHARS-V THE AI-Powered INDIAN Social App")
 
 # --- Section 1: Text + Image/Video post ---
@@ -99,7 +108,7 @@ with st.form("post_form", clear_on_submit=True):
         else:
             st.warning("Cannot post empty content!")
 
-# --- Section 2: File/Image upload for AI ---
+# --- Section 2: Upload file/image for AI ---
 st.subheader("Upload File/Image for AI (Read on demand)")
 with st.form("ai_file_form", clear_on_submit=False):
     ai_file = st.file_uploader("Upload PDF, DOCX, TXT, or Image", type=["pdf","docx","txt","png","jpg","jpeg"], key="ai_file_form")
@@ -125,7 +134,7 @@ st.subheader("Feed")
 for i, post in enumerate(posts):
     st.write(f"**Post {i+1}:** {post['content']}")
 
-    # Display media immediately
+    # Display media
     if post.get("media") and post.get("media_bytes"):
         media_bytes = bytes.fromhex(post["media_bytes"])
         if "image" in post["media"]["type"]:
@@ -133,11 +142,11 @@ for i, post in enumerate(posts):
         elif "video" in post["media"]["type"]:
             st.video(media_bytes)
 
-    # Share links for post
+    # Share links
     whatsapp, gmail = get_share_urls(post["content"])
     st.markdown(f"[Share on WhatsApp]({whatsapp}) | [Share on Gmail]({gmail})")
 
-    # --- User reply to post ---
+    # User reply
     user_reply = st.text_input(f"Write a reply to Post {i+1}:", key=f"reply_post{i}")
     if st.button(f"Submit reply to Post {i+1}", key=f"reply_post_btn{i}"):
         if user_reply.strip():
@@ -145,7 +154,7 @@ for i, post in enumerate(posts):
             save_posts()
             st.success("Reply added!")
 
-    # --- Ask AI about post (text + file if attached) ---
+    # Ask AI about post + attached file/image
     user_q = st.text_input(f"Ask AI about this post {i+1}:", key=f"userq{i}")
     if st.button(f"Ask AI {i+1}", key=f"userb{i}"):
         if user_q.strip():
@@ -154,70 +163,41 @@ for i, post in enumerate(posts):
                 file_bytes = bytes.fromhex(post["file_upload"]["bytes"])
                 f_type = post["file_upload"]["type"]
 
-                if f_type == "application/pdf":
-                    pdf = PyPDF2.PdfReader(io.BytesIO(file_bytes))
-                    text = "".join([page.extract_text() or "" for page in pdf.pages])
-                    full_question += "\n\nAttached file content:\n" + text
-                elif f_type == "application/vnd.openxmlformats-officedocument.wordprocessingml.document":
-                    text = docx2txt.process(io.BytesIO(file_bytes))
-                    full_question += "\n\nAttached file content:\n" + text
-                elif f_type == "text/plain":
-                    text = file_bytes.decode("utf-8")
-                    full_question += "\n\nAttached file content:\n" + text
-                elif "image" in f_type:
-                    try:
-                        image_data = {"mime_type": f_type, "data": file_bytes}
-                        vision_response = client.models.generate_content(
-                            model="gemini-2.5-flash",
-                            contents=[{"role": "user", "parts": [image_data, {"text": "Extract text or describe key content from this image."}]}]
-                        )
-                        text = vision_response.text.strip()
-                        full_question += "\n\nAttached image description:\n" + text
-                    except Exception as e:
-                        full_question += f"\n\n[Image analysis failed: {e}]"
+                file_content = ""
+                try:
+                    if f_type == "application/pdf":
+                        pdf = PyPDF2.PdfReader(io.BytesIO(file_bytes))
+                        file_content = "".join([page.extract_text() or "" for page in pdf.pages])
+                    elif f_type == "application/vnd.openxmlformats-officedocument.wordprocessingml.document":
+                        file_content = read_docx_bytes(file_bytes)
+                    elif f_type == "text/plain":
+                        file_content = file_bytes.decode("utf-8")
+                    elif "image" in f_type:
+                        # Image analysis via AI
+                        if client:
+                            image_data = {"mime_type": f_type, "data": file_bytes}
+                            vision_response = client.models.generate_content(
+                                model="gemini-2.5-flash",
+                                contents=[{"role": "user", "parts": [image_data, {"text": "Extract text or describe key content from this image."}]}]
+                            )
+                            file_content = vision_response.text.strip()
+                        else:
+                            file_content = "[AI client not initialized for image analysis]"
+                except Exception as e:
+                    file_content = f"[Failed to read file: {e}]"
+
+                full_question += f"\n\nAttached file content:\n{file_content}"
 
             answer = ask_ai(full_question)
             post["comments"].insert(0, {"question": user_q, "answer": answer, "replies": []})
             save_posts()
 
-    # --- Ask AI only about the attached file/image ---
-    if post.get("file_upload"):
-        user_file_q = st.text_input(f"Ask AI about the attached file/image in Post {i+1}:", key=f"userfileq{i}")
-        if st.button(f"Ask AI on File/Image {i+1}", key=f"userfileb{i}"):
-            if user_file_q.strip():
-                file_bytes = bytes.fromhex(post["file_upload"]["bytes"])
-                f_type = post["file_upload"]["type"]
-
-                file_context = ""
-                if f_type == "application/pdf":
-                    pdf = PyPDF2.PdfReader(io.BytesIO(file_bytes))
-                    file_context = "".join([page.extract_text() or "" for page in pdf.pages])
-                elif f_type == "application/vnd.openxmlformats-officedocument.wordprocessingml.document":
-                    file_context = docx2txt.process(io.BytesIO(file_bytes))
-                elif f_type == "text/plain":
-                    file_context = file_bytes.decode("utf-8")
-                elif "image" in f_type:
-                    try:
-                        image_data = {"mime_type": f_type, "data": file_bytes}
-                        vision_response = client.models.generate_content(
-                            model="gemini-2.5-flash",
-                            contents=[{"role": "user", "parts": [image_data, {"text": "Extract text or describe key content from this image."}]}]
-                        )
-                        file_context = vision_response.text.strip()
-                    except Exception as e:
-                        file_context = f"[Image analysis failed: {e}]"
-
-                full_question = f"{user_file_q}\n\nAttached file content:\n{file_context}"
-                answer = ask_ai(full_question)
-                post["comments"].insert(0, {"question": user_file_q, "answer": answer, "replies": []})
-                save_posts()
-
-    # Share buttons for attached file/image
+    # Share attached file
     if post.get("file_upload"):
         whatsapp_file, gmail_file = get_share_urls(f"Check the attached file in Post {i+1}: {post['file_upload']['name']}")
         st.markdown(f"[Share file on WhatsApp]({whatsapp_file}) | [Share file on Gmail]({gmail_file})")
 
-    # --- Comments with nested replies ---
+    # Comments / AI Replies
     st.write("**Comments / AI Replies:**")
     for c_idx, c in enumerate(post.get("comments", [])):
         container = st.container()
