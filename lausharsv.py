@@ -86,48 +86,55 @@ st.title("AI-Powered Social App with Nested Replies")
 
 # --- Section 1: Text + Image/Video post ---
 st.subheader("Post Text + Image/Video")
-post_text = st.text_area("Write your post here:")
-media_file = st.file_uploader("Upload Image/Video", type=["png","jpg","jpeg","mp4"], key="media")
+with st.form("post_form", clear_on_submit=True):
+    post_text = st.text_area("Write your post here:")
+    media_file = st.file_uploader("Upload Image/Video", type=["png","jpg","jpeg","mp4"], key="media_form")
+    submitted = st.form_submit_button("Post Text/Image/Video")
 
-if st.button("Post Text/Image/Video"):
-    post_content = post_text
-    media_info = None
-    media_bytes = None
-    if media_file:
-        media_info = {"name": media_file.name, "type": media_file.type}
-        media_bytes = media_file.read()
-    if post_content or media_bytes:
-        if moderate_post(post_content):
-            posts.insert(0,{
-                "content": post_content,
-                "media": media_info,
-                "media_bytes": media_bytes.hex() if media_bytes else None,
-                "file_upload": None,
-                "comments": [],
-                "predefined_questions": generate_predefined_questions(post_content)
-            })
-            save_posts()
-            st.success("Post created successfully!")
+    if submitted:
+        post_content = post_text
+        media_info = None
+        media_bytes = None
+        if media_file:
+            media_info = {"name": media_file.name, "type": media_file.type}
+            media_bytes = media_file.read()
+        if post_content or media_bytes:
+            if moderate_post(post_content):
+                posts.insert(0,{
+                    "content": post_content,
+                    "media": media_info,
+                    "media_bytes": media_bytes.hex() if media_bytes else None,
+                    "file_upload": None,
+                    "comments": [],
+                    "predefined_questions": generate_predefined_questions(post_content)
+                })
+                save_posts()
+                st.success("Post created successfully!")
+            else:
+                st.error("Post considered inappropriate/absurd.")
         else:
-            st.error("Post considered inappropriate/absurd.")
-    else:
-        st.warning("Cannot post empty content!")
+            st.warning("Cannot post empty content!")
 
 # --- Section 2: File/Image upload for AI ---
 st.subheader("Upload File/Image for AI (Read on demand)")
-ai_file = st.file_uploader("Upload PDF, DOCX, TXT, or Image", type=["pdf","docx","txt","png","jpg","jpeg"], key="ai_file")
-post_id_for_ai = st.number_input("Select post number to attach file for AI reading:", min_value=1, max_value=len(posts), step=1) if posts else 1
+with st.form("ai_file_form", clear_on_submit=False):
+    ai_file = st.file_uploader("Upload PDF, DOCX, TXT, or Image", type=["pdf","docx","txt","png","jpg","jpeg"], key="ai_file_form")
+    post_id_for_ai = st.number_input(
+        "Select post number to attach file for AI reading:",
+        min_value=1, max_value=len(posts), step=1
+    ) if posts else 1
+    attach_submitted = st.form_submit_button("Attach File/Image for AI")
 
-if st.button("Attach File/Image for AI"):
-    if ai_file and posts:
-        file_bytes = ai_file.read()
-        posts[post_id_for_ai-1]["file_upload"] = {
-            "name": ai_file.name,
-            "type": ai_file.type,
-            "bytes": file_bytes.hex()
-        }
-        save_posts()
-        st.success("File/Image attached for AI. Content will be read when user asks a question.")
+    if attach_submitted:
+        if ai_file and posts:
+            file_bytes = ai_file.read()
+            posts[post_id_for_ai-1]["file_upload"] = {
+                "name": ai_file.name,
+                "type": ai_file.type,
+                "bytes": file_bytes.hex()
+            }
+            save_posts()
+            st.success("File/Image attached for AI. Content will be read when user asks a question.")
 
 # --- Display Feed ---
 st.subheader("Feed")
@@ -142,7 +149,7 @@ for i, post in enumerate(posts):
         elif "video" in post["media"]["type"]:
             st.video(media_bytes)
 
-    # Share links
+    # Share links for post
     whatsapp, gmail = get_share_urls(post["content"])
     st.markdown(f"[Share on WhatsApp]({whatsapp}) | [Share on Gmail]({gmail})")
 
@@ -154,7 +161,7 @@ for i, post in enumerate(posts):
             post["comments"].append({"question": q, "answer": answer, "replies": []})
             save_posts()
 
-    # Free form AI question (reads attached files)
+    # Free form AI question (reads attached files/images)
     user_q = st.text_input(f"Ask AI about this post {i+1}:", key=f"userq{i}")
     if st.button(f"Ask AI {i+1}", key=f"userb{i}"):
         if user_q.strip():
@@ -162,6 +169,7 @@ for i, post in enumerate(posts):
             if post.get("file_upload"):
                 file_bytes = bytes.fromhex(post["file_upload"]["bytes"])
                 f_type = post["file_upload"]["type"]
+
                 if f_type == "application/pdf":
                     pdf = PyPDF2.PdfReader(io.BytesIO(file_bytes))
                     text = "".join([page.extract_text() or "" for page in pdf.pages])
@@ -176,9 +184,15 @@ for i, post in enumerate(posts):
                     image = Image.open(io.BytesIO(file_bytes))
                     text = pytesseract.image_to_string(image)
                     full_question += "\n\nAttached image text:\n" + text
+
             answer = ask_ai(full_question)
             post["comments"].append({"question": user_q, "answer": answer, "replies": []})
             save_posts()
+
+    # Share buttons for attached file/image
+    if post.get("file_upload"):
+        whatsapp_file, gmail_file = get_share_urls(f"Check the attached file in Post {i+1}: {post['file_upload']['name']}")
+        st.markdown(f"[Share file on WhatsApp]({whatsapp_file}) | [Share file on Gmail]({gmail_file})")
 
     # Comments section with nested replies
     st.write("**Comments / AI Replies:**")
@@ -190,14 +204,14 @@ for i, post in enumerate(posts):
                 st.markdown(f"  - **A:** {c['answer']}")
             else:
                 st.markdown(f"- **Comment:** {c['question']}")
-            
+
             # Nested reply input
             reply_text = st.text_input(f"Reply to comment {c_idx+1} on post {i+1}:", key=f"reply{i}_{c_idx}")
             if st.button(f"Submit reply {c_idx+1}", key=f"replyb{i}_{c_idx}"):
                 if reply_text.strip():
                     c["replies"].append(reply_text)
                     save_posts()
-            
+
             # Display nested replies
             if c.get("replies"):
                 for r in c["replies"]:
