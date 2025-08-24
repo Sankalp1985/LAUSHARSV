@@ -1,4 +1,7 @@
 streamlit
-pyttsx3
-SpeechRecognition
 google-genai
+pillow
+PyPDF2
+pytesseract
+docx2txt
+gtts
