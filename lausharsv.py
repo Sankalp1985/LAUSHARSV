@@ -3,6 +3,7 @@ import speech_recognition as sr
 import pyttsx3
 import json
 import os
+import re
 from google import genai
 
 # --- Persistent storage ---
@@ -40,7 +41,15 @@ def moderate_post(content):
     try:
         prompt = f"Rate absurdity of this text from 0 (good) to 1 (absurd): {content}"
         response = client.models.generate_content(model="gemini-2.5-flash", contents=prompt)
-        score = float(response.text.strip())
+        text = response.text.strip()
+
+        # Extract the first float number from Gemini's response
+        match = re.search(r"\b\d+(\.\d+)?\b", text)
+        if match:
+            score = float(match.group())
+        else:
+            score = 0.5  # default moderate score if parsing fails
+
         return score < 0.7
     except Exception as e:
         st.error(f"Moderation failed: {e}")
