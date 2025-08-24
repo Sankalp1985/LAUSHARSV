@@ -156,7 +156,7 @@ st.subheader("Feed")
 for i, post in enumerate(posts):
     post_div_id = post.get("post_id", f"post{i}")
 
-    # Highlighted posts with border/background if matches URL
+    # Highlighted posts
     highlight_style = ""
     if post_div_id == highlight_post_id:
         highlight_style = "padding:10px; border:3px solid #FFD700; border-radius:10px; background:#1a1a1a;"
@@ -269,7 +269,7 @@ if highlight_post_id:
                     el.style.background = "#1a1a1a";
                     el.style.padding = "10px";
                 }}
-            }}, 200);
+            }}, 300);
             </script>
             """,
             unsafe_allow_html=True
