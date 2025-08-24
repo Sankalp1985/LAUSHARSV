@@ -82,7 +82,7 @@ def get_share_urls(post_content):
     gmail = f"https://mail.google.com/mail/?view=cm&body={encoded_text}&su=Check%20this%20post"
     return whatsapp, gmail
 
-st.title("AI-Powered Social App with Nested Replies")
+st.title("LAUSHARS-V THE AI-Powered INDIAN Social App")
 
 # --- Section 1: Text + Image/Video post ---
 st.subheader("Post Text + Image/Video")
@@ -152,6 +152,14 @@ for i, post in enumerate(posts):
     # Share links for post
     whatsapp, gmail = get_share_urls(post["content"])
     st.markdown(f"[Share on WhatsApp]({whatsapp}) | [Share on Gmail]({gmail})")
+
+    # --- New: General user reply to post ---
+    user_reply = st.text_input(f"Write a reply to Post {i+1}:", key=f"reply_post{i}")
+    if st.button(f"Submit reply to Post {i+1}", key=f"reply_post_btn{i}"):
+        if user_reply.strip():
+            post["comments"].append({"question": user_reply, "answer": None, "replies": []})
+            save_posts()
+            st.success("Reply added!")
 
     # Predefined questions
     st.write("**Predefined Questions:**")
