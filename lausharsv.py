@@ -6,6 +6,7 @@ from google import genai
 from PIL import Image
 import PyPDF2
 import docx2txt
+import io
 
 # --- Persistent storage ---
 POSTS_FILE = "posts.json"
@@ -33,8 +34,12 @@ except Exception as e:
     st.error(f"Failed to initialize Gemini client: {e}")
     client = None
 
-# --- AI moderation ---
+# --- Moderation: absurdity + curse words ---
+CURSE_WORDS = ["fuck", "shit", "bitch", "asshole", "damn"]  # extend as needed
 def moderate_post(content):
+    # Basic curse word filter
+    if any(word in content.lower() for word in CURSE_WORDS):
+        return False
     if client is None:
         return True
     try:
@@ -47,7 +52,7 @@ def moderate_post(content):
     except:
         return True
 
-# --- Ask AI (Gemini, limit 100 words) ---
+# --- Ask AI (max 100 words) ---
 def ask_ai(question):
     if client is None:
         return "Gemini client not initialized."
@@ -58,7 +63,7 @@ def ask_ai(question):
     except Exception as e:
         return f"Error generating response: {e}"
 
-# --- Generate 3 predefined questions from post content ---
+# --- Generate 3 predefined questions ---
 def generate_predefined_questions(content):
     if client is None:
         return ["What is this post about?", "Explain the main idea.", "Give a summary."]
@@ -78,26 +83,27 @@ st.title("AI-Powered Social App with Media & Smart Q&A")
 # --- Create post ---
 st.subheader("Create a Post")
 post_text = st.text_area("Write your post here:")
-
 uploaded_file = st.file_uploader("Upload media (Image, Video, PDF, DOCX, TXT)", type=["png","jpg","jpeg","mp4","pdf","docx","txt"])
 
 if st.button("Post"):
     post_content = post_text
     media_info = None
+    media_bytes = None
     if uploaded_file:
         media_info = {"name": uploaded_file.name, "type": uploaded_file.type}
-        # Extract text from files if possible
+        media_bytes = uploaded_file.read()
+        uploaded_file.seek(0)
         if uploaded_file.type == "application/pdf":
-            pdf = PyPDF2.PdfReader(uploaded_file)
+            pdf = PyPDF2.PdfReader(io.BytesIO(media_bytes))
             text = ""
             for page in pdf.pages:
                 text += page.extract_text() or ""
             post_content += "\n" + text
         elif uploaded_file.type == "application/vnd.openxmlformats-officedocument.wordprocessingml.document":
-            text = docx2txt.process(uploaded_file)
+            text = docx2txt.process(io.BytesIO(media_bytes))
             post_content += "\n" + text
         elif uploaded_file.type == "text/plain":
-            text = str(uploaded_file.read(), "utf-8")
+            text = media_bytes.decode("utf-8")
             post_content += "\n" + text
 
     if post_content:
@@ -105,13 +111,14 @@ if st.button("Post"):
             posts.insert(0, {
                 "content": post_content,
                 "media": media_info,
-                "comments": [],  # Store all AI/user answers here
+                "media_bytes": media_bytes.hex() if media_bytes else None,
+                "comments": [],
                 "predefined_questions": generate_predefined_questions(post_content)
             })
             save_posts()
             st.success("Post created successfully!")
         else:
-            st.error("Post considered absurd by AI.")
+            st.error("Post considered inappropriate/absurd.")
     else:
         st.warning("Post cannot be empty!")
 
@@ -119,12 +126,14 @@ if st.button("Post"):
 st.subheader("Feed")
 for i, post in enumerate(posts):
     st.write(f"**Post {i+1}:** {post['content']}")
-    if post.get("media"):
+    
+    # Display media
+    if post.get("media") and post.get("media_bytes"):
+        media_bytes = bytes.fromhex(post["media_bytes"])
         if "image" in post["media"]["type"]:
-            img = Image.open(post["media"]["name"])
-            st.image(img)
+            st.image(Image.open(io.BytesIO(media_bytes)))
         elif "video" in post["media"]["type"]:
-            st.video(post["media"]["name"])
+            st.video(media_bytes)
         else:
             st.write(f"Uploaded file: {post['media']['name']}")
 
@@ -139,13 +148,14 @@ for i, post in enumerate(posts):
     # Free form question
     user_q = st.text_input(f"Ask any question about this post {i+1}:", key=f"userq{i}")
     if st.button(f"Ask AI {i+1}", key=f"userb{i}"):
-        answer = ask_ai(user_q)
-        post["comments"].append({"question": user_q, "answer": answer})
-        save_posts()
+        if user_q.strip():
+            answer = ask_ai(user_q)
+            post["comments"].append({"question": user_q, "answer": answer})
+            save_posts()
 
     # Display all comments for this post
     if post.get("comments"):
         st.write("**Comments / AI Replies:**")
         for c in post["comments"]:
-            st.write(f"**Q:** {c['question']}")
-            st.write(f"**A:** {c['answer']}")
+            st.markdown(f"- **Q:** {c['question']}")
+            st.markdown(f"  - **A:** {c['answer']}")
