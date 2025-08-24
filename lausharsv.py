@@ -78,7 +78,7 @@ def generate_post_id():
 
 # --- Share URLs using post_id ---
 def get_share_urls(post_id):
-    base_url = st.secrets.get("APP_URL", "http://localhost:8501")  # Set deployed URL in secrets
+    base_url = st.secrets.get("APP_URL", "https://lausharsv.streamlit.app")  # Public deployed URL
     share_url = f"{base_url}?post_id={post_id}"
     encoded_url = urllib.parse.quote(share_url)
     whatsapp = f"https://wa.me/?text={encoded_url}"
