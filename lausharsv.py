@@ -78,23 +78,19 @@ def generate_post_id():
 
 # --- Share URLs using post_id ---
 def get_share_urls(post_id):
-    base_url = st.secrets.get("APP_URL", "https://lausharsv.streamlit.app")  # Public deployed URL
+    base_url = st.secrets.get("APP_URL", "https://lausharsv.streamlit.app")
     share_url = f"{base_url}?post_id={post_id}"
     encoded_url = urllib.parse.quote(share_url)
     whatsapp = f"https://wa.me/?text={encoded_url}"
     gmail = f"https://mail.google.com/mail/?view=cm&body={encoded_url}&su=Check%20this%20post"
     return whatsapp, gmail
 
-# --- Read URL query parameter ---
-#query_params = st.experimental_get_query_params()
-#highlight_post_id = st.query_params.get("post_id", [None])[0]  # None if not present
 # --- Read URL query parameter safely ---
 highlight_post_id = None
 if "post_id" in st.query_params:
     values = st.query_params["post_id"]
-    if values:  # ensure list is not empty
+    if values:
         highlight_post_id = values[0]
-
 
 # --- Streamlit App ---
 st.title("LAUSHARS-V THE AI-Powered INDIAN Social App")
@@ -160,19 +156,15 @@ st.subheader("Feed")
 for i, post in enumerate(posts):
     post_div_id = post.get("post_id", f"post{i}")
 
-    # Wrap post content in div and highlight if matches URL
+    # Highlighted posts with border/background if matches URL
+    highlight_style = ""
     if post_div_id == highlight_post_id:
-        st.markdown(
-            f"<div id='{post_div_id}' style='padding:10px; border:3px solid #FFD700; border-radius:10px; background:#1a1a1a;'>"
-            f"**Post {i+1}: {post['content']}**"
-            "</div>",
-            unsafe_allow_html=True
-        )
-    else:
-        st.markdown(
-            f"<div id='{post_div_id}'>**Post {i+1}: {post['content']}**</div>",
-            unsafe_allow_html=True
-        )
+        highlight_style = "padding:10px; border:3px solid #FFD700; border-radius:10px; background:#1a1a1a;"
+
+    st.markdown(
+        f"<div id='{post_div_id}' style='{highlight_style}'>**Post {i+1}: {post['content']}**</div>",
+        unsafe_allow_html=True
+    )
 
     # Display media
     if post.get("media") and post.get("media_bytes"):
@@ -202,7 +194,6 @@ for i, post in enumerate(posts):
             if post.get("file_upload"):
                 file_bytes = bytes.fromhex(post["file_upload"]["bytes"])
                 f_type = post["file_upload"]["type"]
-
                 file_content = ""
                 try:
                     if f_type == "application/pdf":
@@ -224,7 +215,6 @@ for i, post in enumerate(posts):
                             file_content = "[AI client not initialized for image analysis]"
                 except Exception as e:
                     file_content = f"[Failed to read file: {e}]"
-
                 full_question += f"\n\nAttached file content:\n{file_content}"
 
             answer = ask_ai(full_question)
@@ -258,30 +248,29 @@ for i, post in enumerate(posts):
                     st.markdown(f"    - **Reply:** {r}")
 
 # --- Auto-scroll and highlight post by post_id ---
-# Map 6-digit post_id to actual post index for highlighting
-highlight_index = None
 if highlight_post_id:
+    highlight_index = None
     for idx, post in enumerate(posts):
         if post.get("post_id") == highlight_post_id:
             highlight_index = idx
             break
 
-# Auto-scroll and highlight post if found
-if highlight_index is not None:
-    target_post_id = posts[highlight_index]["post_id"]
-    st.markdown(
-        f"""
-        <script>
-        const el = document.getElementById("{target_post_id}");
-        if(el) {{
-            el.scrollIntoView({{behavior: "smooth", block: "center"}});
-            el.style.border = "3px solid #FFD700";
-            el.style.borderRadius = "10px";
-            el.style.background = "#1a1a1a";
-            el.style.padding = "10px";
-        }}
-        </script>
-        """,
-        unsafe_allow_html=True
-    )
-
+    if highlight_index is not None:
+        target_post_id = posts[highlight_index]["post_id"]
+        st.markdown(
+            f"""
+            <script>
+            setTimeout(() => {{
+                const el = document.getElementById("{target_post_id}");
+                if(el) {{
+                    el.scrollIntoView({{behavior: "smooth", block: "center"}});
+                    el.style.border = "3px solid #FFD700";
+                    el.style.borderRadius = "10px";
+                    el.style.background = "#1a1a1a";
+                    el.style.padding = "10px";
+                }}
+            }}, 200);
+            </script>
+            """,
+            unsafe_allow_html=True
+        )
