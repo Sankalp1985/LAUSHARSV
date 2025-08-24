@@ -87,7 +87,7 @@ def get_share_urls(post_id):
 
 # --- Read URL query parameter ---
 query_params = st.experimental_get_query_params()
-highlight_post_id = query_params.get("post_id", [None])[0]  # None if not present
+highlight_post_id = st.query_params.get("post_id", [None])[0]  # None if not present
 
 # --- Streamlit App ---
 st.title("LAUSHARS-V THE AI-Powered INDIAN Social App")
