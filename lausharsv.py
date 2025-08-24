@@ -257,16 +257,31 @@ for i, post in enumerate(posts):
                 for r in c["replies"]:
                     st.markdown(f"    - **Reply:** {r}")
 
-# --- Auto-scroll to highlighted post ---
+# --- Auto-scroll and highlight post by post_id ---
+# Map 6-digit post_id to actual post index for highlighting
+highlight_index = None
 if highlight_post_id:
+    for idx, post in enumerate(posts):
+        if post.get("post_id") == highlight_post_id:
+            highlight_index = idx
+            break
+
+# Auto-scroll and highlight post if found
+if highlight_index is not None:
+    target_post_id = posts[highlight_index]["post_id"]
     st.markdown(
         f"""
         <script>
-        var el = document.getElementById("{highlight_post_id}");
+        const el = document.getElementById("{target_post_id}");
         if(el) {{
             el.scrollIntoView({{behavior: "smooth", block: "center"}});
+            el.style.border = "3px solid #FFD700";
+            el.style.borderRadius = "10px";
+            el.style.background = "#1a1a1a";
+            el.style.padding = "10px";
         }}
         </script>
         """,
         unsafe_allow_html=True
     )
+
