@@ -7,7 +7,6 @@ from google import genai
 from PIL import Image
 import PyPDF2
 import docx2txt
-import pytesseract
 import urllib.parse
 
 # --- Persistent storage ---
@@ -138,15 +137,15 @@ for i, post in enumerate(posts):
     whatsapp, gmail = get_share_urls(post["content"])
     st.markdown(f"[Share on WhatsApp]({whatsapp}) | [Share on Gmail]({gmail})")
 
-    # --- New: General user reply to post ---
+    # --- User reply to post ---
     user_reply = st.text_input(f"Write a reply to Post {i+1}:", key=f"reply_post{i}")
     if st.button(f"Submit reply to Post {i+1}", key=f"reply_post_btn{i}"):
         if user_reply.strip():
-            post["comments"].insert(0, {"question": user_reply, "answer": None, "replies": []})  # insert at top
+            post["comments"].insert(0, {"question": user_reply, "answer": None, "replies": []})
             save_posts()
             st.success("Reply added!")
 
-    # Free form AI question (reads attached files/images)
+    # --- Ask AI about post (text + file if attached) ---
     user_q = st.text_input(f"Ask AI about this post {i+1}:", key=f"userq{i}")
     if st.button(f"Ask AI {i+1}", key=f"userb{i}"):
         if user_q.strip():
@@ -166,20 +165,59 @@ for i, post in enumerate(posts):
                     text = file_bytes.decode("utf-8")
                     full_question += "\n\nAttached file content:\n" + text
                 elif "image" in f_type:
-                    image = Image.open(io.BytesIO(file_bytes))
-                    text = pytesseract.image_to_string(image)
-                    full_question += "\n\nAttached image text:\n" + text
+                    try:
+                        image_data = {"mime_type": f_type, "data": file_bytes}
+                        vision_response = client.models.generate_content(
+                            model="gemini-2.5-flash",
+                            contents=[{"role": "user", "parts": [image_data, {"text": "Extract text or describe key content from this image."}]}]
+                        )
+                        text = vision_response.text.strip()
+                        full_question += "\n\nAttached image description:\n" + text
+                    except Exception as e:
+                        full_question += f"\n\n[Image analysis failed: {e}]"
 
             answer = ask_ai(full_question)
-            post["comments"].insert(0, {"question": user_q, "answer": answer, "replies": []})  # insert at top
+            post["comments"].insert(0, {"question": user_q, "answer": answer, "replies": []})
             save_posts()
+
+    # --- Ask AI only about the attached file/image ---
+    if post.get("file_upload"):
+        user_file_q = st.text_input(f"Ask AI about the attached file/image in Post {i+1}:", key=f"userfileq{i}")
+        if st.button(f"Ask AI on File/Image {i+1}", key=f"userfileb{i}"):
+            if user_file_q.strip():
+                file_bytes = bytes.fromhex(post["file_upload"]["bytes"])
+                f_type = post["file_upload"]["type"]
+
+                file_context = ""
+                if f_type == "application/pdf":
+                    pdf = PyPDF2.PdfReader(io.BytesIO(file_bytes))
+                    file_context = "".join([page.extract_text() or "" for page in pdf.pages])
+                elif f_type == "application/vnd.openxmlformats-officedocument.wordprocessingml.document":
+                    file_context = docx2txt.process(io.BytesIO(file_bytes))
+                elif f_type == "text/plain":
+                    file_context = file_bytes.decode("utf-8")
+                elif "image" in f_type:
+                    try:
+                        image_data = {"mime_type": f_type, "data": file_bytes}
+                        vision_response = client.models.generate_content(
+                            model="gemini-2.5-flash",
+                            contents=[{"role": "user", "parts": [image_data, {"text": "Extract text or describe key content from this image."}]}]
+                        )
+                        file_context = vision_response.text.strip()
+                    except Exception as e:
+                        file_context = f"[Image analysis failed: {e}]"
+
+                full_question = f"{user_file_q}\n\nAttached file content:\n{file_context}"
+                answer = ask_ai(full_question)
+                post["comments"].insert(0, {"question": user_file_q, "answer": answer, "replies": []})
+                save_posts()
 
     # Share buttons for attached file/image
     if post.get("file_upload"):
         whatsapp_file, gmail_file = get_share_urls(f"Check the attached file in Post {i+1}: {post['file_upload']['name']}")
         st.markdown(f"[Share file on WhatsApp]({whatsapp_file}) | [Share file on Gmail]({gmail_file})")
 
-    # Comments section with nested replies (descending order already handled with insert)
+    # --- Comments with nested replies ---
     st.write("**Comments / AI Replies:**")
     for c_idx, c in enumerate(post.get("comments", [])):
         container = st.container()
@@ -190,14 +228,12 @@ for i, post in enumerate(posts):
             else:
                 st.markdown(f"- **Comment:** {c['question']}")
 
-            # Nested reply input
             reply_text = st.text_input(f"Reply to comment {c_idx+1} on post {i+1}:", key=f"reply{i}_{c_idx}")
             if st.button(f"Submit reply {c_idx+1}", key=f"replyb{i}_{c_idx}"):
                 if reply_text.strip():
-                    c["replies"].insert(0, reply_text)  # latest reply first
+                    c["replies"].insert(0, reply_text)
                     save_posts()
 
-            # Display nested replies
             if c.get("replies"):
                 for r in c["replies"]:
                     st.markdown(f"    - **Reply:** {r}")
