@@ -61,20 +61,6 @@ def ask_ai(question):
     except Exception as e:
         return f"Error generating response: {e}"
 
-# --- Predefined questions ---
-def generate_predefined_questions(content):
-    if client is None:
-        return ["What is this post about?", "Explain the main idea.", "Give a summary."]
-    try:
-        prompt = f"Create 3 simple questions based on this text:\n{content}"
-        response = client.models.generate_content(model="gemini-2.5-flash", contents=prompt)
-        questions = [q.strip() for q in response.text.strip().split("\n") if q.strip()][:3]
-        if len(questions) < 3:
-            questions += ["Explain the main idea.","Give a summary.","What is this post about?"][:3-len(questions)]
-        return questions
-    except:
-        return ["Explain the main idea.","Give a summary.","What is this post about?"]
-
 # --- Share URLs ---
 def get_share_urls(post_content):
     encoded_text = urllib.parse.quote(post_content)
@@ -105,8 +91,7 @@ with st.form("post_form", clear_on_submit=True):
                     "media": media_info,
                     "media_bytes": media_bytes.hex() if media_bytes else None,
                     "file_upload": None,
-                    "comments": [],
-                    "predefined_questions": generate_predefined_questions(post_content)
+                    "comments": []
                 })
                 save_posts()
                 st.success("Post created successfully!")
@@ -157,17 +142,9 @@ for i, post in enumerate(posts):
     user_reply = st.text_input(f"Write a reply to Post {i+1}:", key=f"reply_post{i}")
     if st.button(f"Submit reply to Post {i+1}", key=f"reply_post_btn{i}"):
         if user_reply.strip():
-            post["comments"].append({"question": user_reply, "answer": None, "replies": []})
+            post["comments"].insert(0, {"question": user_reply, "answer": None, "replies": []})  # insert at top
             save_posts()
             st.success("Reply added!")
-
-    # Predefined questions
-    st.write("**Predefined Questions:**")
-    for idx, q in enumerate(post.get("predefined_questions", [])):
-        if st.button(f"{q}", key=f"pre{i}{idx}"):
-            answer = ask_ai(q)
-            post["comments"].append({"question": q, "answer": answer, "replies": []})
-            save_posts()
 
     # Free form AI question (reads attached files/images)
     user_q = st.text_input(f"Ask AI about this post {i+1}:", key=f"userq{i}")
@@ -194,7 +171,7 @@ for i, post in enumerate(posts):
                     full_question += "\n\nAttached image text:\n" + text
 
             answer = ask_ai(full_question)
-            post["comments"].append({"question": user_q, "answer": answer, "replies": []})
+            post["comments"].insert(0, {"question": user_q, "answer": answer, "replies": []})  # insert at top
             save_posts()
 
     # Share buttons for attached file/image
@@ -202,7 +179,7 @@ for i, post in enumerate(posts):
         whatsapp_file, gmail_file = get_share_urls(f"Check the attached file in Post {i+1}: {post['file_upload']['name']}")
         st.markdown(f"[Share file on WhatsApp]({whatsapp_file}) | [Share file on Gmail]({gmail_file})")
 
-    # Comments section with nested replies
+    # Comments section with nested replies (descending order already handled with insert)
     st.write("**Comments / AI Replies:**")
     for c_idx, c in enumerate(post.get("comments", [])):
         container = st.container()
@@ -217,7 +194,7 @@ for i, post in enumerate(posts):
             reply_text = st.text_input(f"Reply to comment {c_idx+1} on post {i+1}:", key=f"reply{i}_{c_idx}")
             if st.button(f"Submit reply {c_idx+1}", key=f"replyb{i}_{c_idx}"):
                 if reply_text.strip():
-                    c["replies"].append(reply_text)
+                    c["replies"].insert(0, reply_text)  # latest reply first
                     save_posts()
 
             # Display nested replies
