@@ -85,6 +85,10 @@ def get_share_urls(post_id):
     gmail = f"https://mail.google.com/mail/?view=cm&body={encoded_url}&su=Check%20this%20post"
     return whatsapp, gmail
 
+# --- Read URL query parameter ---
+query_params = st.experimental_get_query_params()
+highlight_post_id = query_params.get("post_id", [None])[0]  # None if not present
+
 # --- Streamlit App ---
 st.title("LAUSHARS-V THE AI-Powered INDIAN Social App")
 
@@ -147,7 +151,21 @@ with st.form("ai_file_form", clear_on_submit=False):
 # --- Display Feed ---
 st.subheader("Feed")
 for i, post in enumerate(posts):
-    st.write(f"**Post {i+1}:** {post['content']}")
+    post_div_id = post.get("post_id", f"post{i}")
+
+    # Wrap post content in div and highlight if matches URL
+    if post_div_id == highlight_post_id:
+        st.markdown(
+            f"<div id='{post_div_id}' style='padding:10px; border:3px solid #FFD700; border-radius:10px; background:#1a1a1a;'>"
+            f"**Post {i+1}: {post['content']}**"
+            "</div>",
+            unsafe_allow_html=True
+        )
+    else:
+        st.markdown(
+            f"<div id='{post_div_id}'>**Post {i+1}: {post['content']}**</div>",
+            unsafe_allow_html=True
+        )
 
     # Display media
     if post.get("media") and post.get("media_bytes"):
@@ -231,3 +249,17 @@ for i, post in enumerate(posts):
             if c.get("replies"):
                 for r in c["replies"]:
                     st.markdown(f"    - **Reply:** {r}")
+
+# --- Auto-scroll to highlighted post ---
+if highlight_post_id:
+    st.markdown(
+        f"""
+        <script>
+        var el = document.getElementById("{highlight_post_id}");
+        if(el) {{
+            el.scrollIntoView({{behavior: "smooth", block: "center"}});
+        }}
+        </script>
+        """,
+        unsafe_allow_html=True
+    )
