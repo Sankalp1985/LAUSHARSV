@@ -2,11 +2,13 @@ import streamlit as st
 import json
 import os
 import re
+import io
 from google import genai
 from PIL import Image
 import PyPDF2
 import docx2txt
-import io
+import pytesseract
+import urllib.parse
 
 # --- Persistent storage ---
 POSTS_FILE = "posts.json"
@@ -16,28 +18,24 @@ if os.path.exists(POSTS_FILE):
     try:
         with open(POSTS_FILE, "r") as f:
             posts = json.load(f)
-    except (json.JSONDecodeError, ValueError):
+    except:
         posts = []
 
 def save_posts():
-    try:
-        with open(POSTS_FILE, "w") as f:
-            json.dump(posts, f, indent=4)
-    except Exception as e:
-        st.error(f"Failed to save posts: {e}")
+    with open(POSTS_FILE, "w") as f:
+        json.dump(posts, f, indent=4)
 
-# --- Initialize Gemini client ---
+# --- Gemini client ---
 try:
     api_key = st.secrets["GENAI_API_KEY"]
     client = genai.Client(api_key=api_key)
 except Exception as e:
-    st.error(f"Failed to initialize Gemini client: {e}")
+    st.error(f"Gemini client not initialized: {e}")
     client = None
 
-# --- Moderation: absurdity + curse words ---
-CURSE_WORDS = ["fuck", "shit", "bitch", "asshole", "damn"]  # extend as needed
+# --- Moderation ---
+CURSE_WORDS = ["fuck","shit","bitch","asshole","damn"]
 def moderate_post(content):
-    # Basic curse word filter
     if any(word in content.lower() for word in CURSE_WORDS):
         return False
     if client is None:
@@ -52,7 +50,7 @@ def moderate_post(content):
     except:
         return True
 
-# --- Ask AI (max 100 words) ---
+# --- Ask AI ---
 def ask_ai(question):
     if client is None:
         return "Gemini client not initialized."
@@ -63,7 +61,7 @@ def ask_ai(question):
     except Exception as e:
         return f"Error generating response: {e}"
 
-# --- Generate 3 predefined questions ---
+# --- Predefined questions ---
 def generate_predefined_questions(content):
     if client is None:
         return ["What is this post about?", "Explain the main idea.", "Give a summary."]
@@ -72,46 +70,39 @@ def generate_predefined_questions(content):
         response = client.models.generate_content(model="gemini-2.5-flash", contents=prompt)
         questions = [q.strip() for q in response.text.strip().split("\n") if q.strip()][:3]
         if len(questions) < 3:
-            questions += ["Explain the main idea.", "Give a summary.", "What is this post about?"][:3-len(questions)]
+            questions += ["Explain the main idea.","Give a summary.","What is this post about?"][:3-len(questions)]
         return questions
     except:
-        return ["Explain the main idea.", "Give a summary.", "What is this post about?"]
+        return ["Explain the main idea.","Give a summary.","What is this post about?"]
 
-# --- Streamlit UI ---
-st.title("AI-Powered Social App with Media & Smart Q&A")
+# --- Share URLs ---
+def get_share_urls(post_content):
+    encoded_text = urllib.parse.quote(post_content)
+    whatsapp = f"https://wa.me/?text={encoded_text}"
+    gmail = f"https://mail.google.com/mail/?view=cm&body={encoded_text}&su=Check%20this%20post"
+    return whatsapp, gmail
 
-# --- Create post ---
-st.subheader("Create a Post")
+st.title("AI-Powered Social App with Nested Replies")
+
+# --- Section 1: Text + Image/Video post ---
+st.subheader("Post Text + Image/Video")
 post_text = st.text_area("Write your post here:")
-uploaded_file = st.file_uploader("Upload media (Image, Video, PDF, DOCX, TXT)", type=["png","jpg","jpeg","mp4","pdf","docx","txt"])
+media_file = st.file_uploader("Upload Image/Video", type=["png","jpg","jpeg","mp4"], key="media")
 
-if st.button("Post"):
+if st.button("Post Text/Image/Video"):
     post_content = post_text
     media_info = None
     media_bytes = None
-    if uploaded_file:
-        media_info = {"name": uploaded_file.name, "type": uploaded_file.type}
-        media_bytes = uploaded_file.read()
-        uploaded_file.seek(0)
-        if uploaded_file.type == "application/pdf":
-            pdf = PyPDF2.PdfReader(io.BytesIO(media_bytes))
-            text = ""
-            for page in pdf.pages:
-                text += page.extract_text() or ""
-            post_content += "\n" + text
-        elif uploaded_file.type == "application/vnd.openxmlformats-officedocument.wordprocessingml.document":
-            text = docx2txt.process(io.BytesIO(media_bytes))
-            post_content += "\n" + text
-        elif uploaded_file.type == "text/plain":
-            text = media_bytes.decode("utf-8")
-            post_content += "\n" + text
-
-    if post_content:
+    if media_file:
+        media_info = {"name": media_file.name, "type": media_file.type}
+        media_bytes = media_file.read()
+    if post_content or media_bytes:
         if moderate_post(post_content):
-            posts.insert(0, {
+            posts.insert(0,{
                 "content": post_content,
                 "media": media_info,
                 "media_bytes": media_bytes.hex() if media_bytes else None,
+                "file_upload": None,
                 "comments": [],
                 "predefined_questions": generate_predefined_questions(post_content)
             })
@@ -120,42 +111,94 @@ if st.button("Post"):
         else:
             st.error("Post considered inappropriate/absurd.")
     else:
-        st.warning("Post cannot be empty!")
+        st.warning("Cannot post empty content!")
 
-# --- Display feed ---
+# --- Section 2: File/Image upload for AI ---
+st.subheader("Upload File/Image for AI (Read on demand)")
+ai_file = st.file_uploader("Upload PDF, DOCX, TXT, or Image", type=["pdf","docx","txt","png","jpg","jpeg"], key="ai_file")
+post_id_for_ai = st.number_input("Select post number to attach file for AI reading:", min_value=1, max_value=len(posts), step=1) if posts else 1
+
+if st.button("Attach File/Image for AI"):
+    if ai_file and posts:
+        file_bytes = ai_file.read()
+        posts[post_id_for_ai-1]["file_upload"] = {
+            "name": ai_file.name,
+            "type": ai_file.type,
+            "bytes": file_bytes.hex()
+        }
+        save_posts()
+        st.success("File/Image attached for AI. Content will be read when user asks a question.")
+
+# --- Display Feed ---
 st.subheader("Feed")
 for i, post in enumerate(posts):
     st.write(f"**Post {i+1}:** {post['content']}")
-    
-    # Display media
+
+    # Display media immediately
     if post.get("media") and post.get("media_bytes"):
         media_bytes = bytes.fromhex(post["media_bytes"])
         if "image" in post["media"]["type"]:
             st.image(Image.open(io.BytesIO(media_bytes)))
         elif "video" in post["media"]["type"]:
             st.video(media_bytes)
-        else:
-            st.write(f"Uploaded file: {post['media']['name']}")
+
+    # Share links
+    whatsapp, gmail = get_share_urls(post["content"])
+    st.markdown(f"[Share on WhatsApp]({whatsapp}) | [Share on Gmail]({gmail})")
 
     # Predefined questions
     st.write("**Predefined Questions:**")
     for idx, q in enumerate(post.get("predefined_questions", [])):
         if st.button(f"{q}", key=f"pre{i}{idx}"):
             answer = ask_ai(q)
-            post["comments"].append({"question": q, "answer": answer})
+            post["comments"].append({"question": q, "answer": answer, "replies": []})
             save_posts()
 
-    # Free form question
-    user_q = st.text_input(f"Ask any question about this post {i+1}:", key=f"userq{i}")
+    # Free form AI question (reads attached files)
+    user_q = st.text_input(f"Ask AI about this post {i+1}:", key=f"userq{i}")
     if st.button(f"Ask AI {i+1}", key=f"userb{i}"):
         if user_q.strip():
-            answer = ask_ai(user_q)
-            post["comments"].append({"question": user_q, "answer": answer})
+            full_question = user_q
+            if post.get("file_upload"):
+                file_bytes = bytes.fromhex(post["file_upload"]["bytes"])
+                f_type = post["file_upload"]["type"]
+                if f_type == "application/pdf":
+                    pdf = PyPDF2.PdfReader(io.BytesIO(file_bytes))
+                    text = "".join([page.extract_text() or "" for page in pdf.pages])
+                    full_question += "\n\nAttached file content:\n" + text
+                elif f_type == "application/vnd.openxmlformats-officedocument.wordprocessingml.document":
+                    text = docx2txt.process(io.BytesIO(file_bytes))
+                    full_question += "\n\nAttached file content:\n" + text
+                elif f_type == "text/plain":
+                    text = file_bytes.decode("utf-8")
+                    full_question += "\n\nAttached file content:\n" + text
+                elif "image" in f_type:
+                    image = Image.open(io.BytesIO(file_bytes))
+                    text = pytesseract.image_to_string(image)
+                    full_question += "\n\nAttached image text:\n" + text
+            answer = ask_ai(full_question)
+            post["comments"].append({"question": user_q, "answer": answer, "replies": []})
             save_posts()
 
-    # Display all comments for this post
-    if post.get("comments"):
-        st.write("**Comments / AI Replies:**")
-        for c in post["comments"]:
-            st.markdown(f"- **Q:** {c['question']}")
-            st.markdown(f"  - **A:** {c['answer']}")
+    # Comments section with nested replies
+    st.write("**Comments / AI Replies:**")
+    for c_idx, c in enumerate(post.get("comments", [])):
+        container = st.container()
+        with container:
+            if c.get("answer"):
+                st.markdown(f"- **Q:** {c['question']}")
+                st.markdown(f"  - **A:** {c['answer']}")
+            else:
+                st.markdown(f"- **Comment:** {c['question']}")
+            
+            # Nested reply input
+            reply_text = st.text_input(f"Reply to comment {c_idx+1} on post {i+1}:", key=f"reply{i}_{c_idx}")
+            if st.button(f"Submit reply {c_idx+1}", key=f"replyb{i}_{c_idx}"):
+                if reply_text.strip():
+                    c["replies"].append(reply_text)
+                    save_posts()
+            
+            # Display nested replies
+            if c.get("replies"):
+                for r in c["replies"]:
+                    st.markdown(f"    - **Reply:** {r}")
