@@ -4,6 +4,8 @@ import os
 import re
 import io
 import tempfile
+import random
+import string
 from google import genai
 from PIL import Image
 import PyPDF2
@@ -34,7 +36,8 @@ except Exception as e:
     client = None
 
 # --- Moderation ---
-CURSE_WORDS = ["fuck","shit","bitch","asshole","damn"]
+CURSE_WORDS = ["fuck", "shit", "bitch", "asshole", "damn"]
+
 def moderate_post(content):
     if any(word in content.lower() for word in CURSE_WORDS):
         return False
@@ -61,13 +64,6 @@ def ask_ai(question):
     except Exception as e:
         return f"Error generating response: {e}"
 
-# --- Share URLs ---
-def get_share_urls(post_content):
-    encoded_text = urllib.parse.quote(post_content)
-    whatsapp = f"https://wa.me/?text={encoded_text}"
-    gmail = f"https://mail.google.com/mail/?view=cm&body={encoded_text}&su=Check%20this%20post"
-    return whatsapp, gmail
-
 # --- DOCX reader helper ---
 def read_docx_bytes(file_bytes):
     with tempfile.NamedTemporaryFile(suffix=".docx", delete=True) as tmp:
@@ -76,13 +72,27 @@ def read_docx_bytes(file_bytes):
         text = docx2txt.process(tmp.name)
     return text
 
+# --- Generate 6-digit alphanumeric ID ---
+def generate_post_id():
+    return ''.join(random.choices(string.ascii_uppercase + string.digits, k=6))
+
+# --- Share URLs using post_id ---
+def get_share_urls(post_id):
+    base_url = st.secrets.get("APP_URL", "http://localhost:8501")  # Set deployed URL in secrets
+    share_url = f"{base_url}?post_id={post_id}"
+    encoded_url = urllib.parse.quote(share_url)
+    whatsapp = f"https://wa.me/?text={encoded_url}"
+    gmail = f"https://mail.google.com/mail/?view=cm&body={encoded_url}&su=Check%20this%20post"
+    return whatsapp, gmail
+
+# --- Streamlit App ---
 st.title("LAUSHARS-V THE AI-Powered INDIAN Social App")
 
 # --- Section 1: Text + Image/Video post ---
 st.subheader("Post Text + Image/Video")
 with st.form("post_form", clear_on_submit=True):
     post_text = st.text_area("Write your post here:")
-    media_file = st.file_uploader("Upload Image/Video", type=["png","jpg","jpeg","mp4"], key="media_form")
+    media_file = st.file_uploader("Upload Image/Video", type=["png", "jpg", "jpeg", "mp4"], key="media_form")
     submitted = st.form_submit_button("Post Text/Image/Video")
 
     if submitted:
@@ -94,12 +104,13 @@ with st.form("post_form", clear_on_submit=True):
             media_bytes = media_file.read()
         if post_content or media_bytes:
             if moderate_post(post_content):
-                posts.insert(0,{
+                posts.insert(0, {
                     "content": post_content,
                     "media": media_info,
                     "media_bytes": media_bytes.hex() if media_bytes else None,
                     "file_upload": None,
-                    "comments": []
+                    "comments": [],
+                    "post_id": generate_post_id()
                 })
                 save_posts()
                 st.success("Post created successfully!")
@@ -111,7 +122,11 @@ with st.form("post_form", clear_on_submit=True):
 # --- Section 2: Upload file/image for AI ---
 st.subheader("Upload File/Image for AI (Read on demand)")
 with st.form("ai_file_form", clear_on_submit=False):
-    ai_file = st.file_uploader("Upload PDF, DOCX, TXT, or Image", type=["pdf","docx","txt","png","jpg","jpeg"], key="ai_file_form")
+    ai_file = st.file_uploader(
+        "Upload PDF, DOCX, TXT, or Image", 
+        type=["pdf", "docx", "txt", "png", "jpg", "jpeg"], 
+        key="ai_file_form"
+    )
     post_id_for_ai = st.number_input(
         "Select post number to attach file for AI reading:",
         min_value=1, max_value=len(posts), step=1
@@ -143,7 +158,7 @@ for i, post in enumerate(posts):
             st.video(media_bytes)
 
     # Share links
-    whatsapp, gmail = get_share_urls(post["content"])
+    whatsapp, gmail = get_share_urls(post["post_id"])
     st.markdown(f"[Share on WhatsApp]({whatsapp}) | [Share on Gmail]({gmail})")
 
     # User reply
@@ -173,7 +188,6 @@ for i, post in enumerate(posts):
                     elif f_type == "text/plain":
                         file_content = file_bytes.decode("utf-8")
                     elif "image" in f_type:
-                        # Image analysis via AI
                         if client:
                             image_data = {"mime_type": f_type, "data": file_bytes}
                             vision_response = client.models.generate_content(
@@ -194,7 +208,7 @@ for i, post in enumerate(posts):
 
     # Share attached file
     if post.get("file_upload"):
-        whatsapp_file, gmail_file = get_share_urls(f"Check the attached file in Post {i+1}: {post['file_upload']['name']}")
+        whatsapp_file, gmail_file = get_share_urls(post["post_id"])
         st.markdown(f"[Share file on WhatsApp]({whatsapp_file}) | [Share file on Gmail]({gmail_file})")
 
     # Comments / AI Replies
