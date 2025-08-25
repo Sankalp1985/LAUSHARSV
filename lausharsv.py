@@ -93,7 +93,7 @@ if "post_id" in st.query_params:
         highlight_post_id = values[0]
 
 # --- Streamlit App ---
-st.title("LAUSHARS-V THE AI-Powered INDIAN Social App")
+st.title("MEGHAM-A & LAUSHARS-V THE AI-Powered INDIAN Social App")
 
 # --- Section 1: Text + Image/Video post ---
 st.subheader("Post Text + Image/Video")
